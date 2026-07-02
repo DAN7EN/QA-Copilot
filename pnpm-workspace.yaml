@@ -1,0 +1,13 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+allowBuilds:
+  esbuild: set this to true or false
+
+# pnpm 11 bloquea por defecto los scripts de postinstall de dependencias.
+# esbuild (usado por Vite) trae su binario nativo vía optionalDependencies,
+# por lo que funciona sin su postinstall. Deshabilitamos el chequeo previo
+# a la ejecucion de scripts para que `pnpm dev` / `pnpm build` no se detengan
+# por ese aviso.
+verifyDepsBeforeRun: false
