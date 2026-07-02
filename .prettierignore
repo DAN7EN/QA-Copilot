@@ -1,0 +1,9 @@
+node_modules
+dist
+build
+coverage
+pnpm-lock.yaml
+
+# Configuración local de herramientas, no es código del proyecto
+.claude/
+CLAUDE.md
