@@ -9,10 +9,12 @@
   },
   "dependencies": {
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.1.1"
   },
   "devDependencies": {
     "@qa-copilot/config": "workspace:*",
+    "@qa-copilot/shared": "workspace:*",
     "@types/react": "^19.0.7",
     "@types/react-dom": "^19.0.3",
     "@vitejs/plugin-react": "^4.3.4",

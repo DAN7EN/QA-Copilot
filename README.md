@@ -25,7 +25,18 @@ qa-copilot/
 ├─ .husky/         # Git hooks (pre-commit, commit-msg)
 ├─ apps/
 │  ├─ frontend/    # App React (Vite)
-│  └─ backend/     # API Fastify
+│  │  └─ src/
+│  │     ├─ app/         # Bootstrap de la app y definición de rutas
+│  │     ├─ layout/      # Layout principal (navegación)
+│  │     ├─ pages/       # Páginas: home, chat, not-found
+│  │     └─ lib/http/    # Cliente HTTP centralizado
+│  └─ backend/     # API Fastify (arquitectura hexagonal)
+│     └─ src/
+│        ├─ domain/          # Entidades y puertos del dominio
+│        ├─ application/     # Casos de uso
+│        ├─ infrastructure/  # Adaptadores de framework (Fastify)
+│        ├─ interfaces/http/ # Rutas HTTP (adaptador de entrada)
+│        └─ shared/          # Configuración y utilidades transversales
 ├─ packages/
 │  ├─ shared/      # Tipos compartidos
 │  └─ config/      # Configuración base de TypeScript
@@ -52,6 +63,20 @@ qa-copilot/
 pnpm install
 ```
 
+## Variables de entorno
+
+Cada app documenta sus variables en un `.env.example`:
+
+- `apps/frontend/.env.example` → `VITE_API_BASE_URL`
+- `apps/backend/.env.example` → `PORT`, `HOST`
+
+Copiar a `.env` en cada app para personalizarlas localmente:
+
+```bash
+cp apps/frontend/.env.example apps/frontend/.env
+cp apps/backend/.env.example apps/backend/.env
+```
+
 ## Ejecución
 
 Levantar frontend y backend a la vez desde el workspace:
@@ -66,7 +91,7 @@ pnpm dev
 Verificar el backend:
 
 ```bash
-curl http://localhost:3001/health
+curl http://localhost:3001/api/v1/health
 # { "status": "ok", "service": "qa-copilot-api" }
 ```
 
