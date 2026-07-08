@@ -32,4 +32,38 @@ describe("httpClient", () => {
 
     await expect(httpClient.get("/health")).rejects.toThrow();
   });
+
+  it("realiza un POST sin body sin forzar el header Content-Type", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: "conv-1" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpClient.post("/conversations");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/conversations"),
+      expect.objectContaining({ method: "POST", headers: {}, body: undefined }),
+    );
+  });
+
+  it("realiza un POST con body serializado en JSON e incluye Content-Type", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ ok: true }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await httpClient.post("/conversations/conv-1/messages", { content: "hola" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/conversations/conv-1/messages"),
+      expect.objectContaining({
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ content: "hola" }),
+      }),
+    );
+  });
 });

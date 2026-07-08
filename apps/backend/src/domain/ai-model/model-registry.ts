@@ -11,10 +11,16 @@ import { ModelNotFoundError } from "./errors/ai-model.errors.js";
  * proveedor (Cloudflare AI Gateway) vive únicamente en su adaptador.
  */
 const MODELS: readonly AIModel[] = [
-  new AIModel(ModelId.fromString("gemini-2.5-flash"), "Gemini 2.5 Flash", "Google", ["chat"]),
-  new AIModel(ModelId.fromString("mistral-small"), "Mistral Small", "Mistral AI", ["chat"]),
-  new AIModel(ModelId.fromString("llama-3.3-70b"), "Llama 3.3 70B", "Meta", ["chat"]),
-  new AIModel(ModelId.fromString("deepseek-v3"), "DeepSeek V3", "DeepSeek", ["chat"]),
+  new AIModel(ModelId.fromString("gemini-2.5-flash"), "Gemini 2.5 Flash", "Google", [
+    "chat",
+    "gherkin",
+  ]),
+  new AIModel(ModelId.fromString("mistral-small"), "Mistral Small", "Mistral AI", [
+    "chat",
+    "gherkin",
+  ]),
+  new AIModel(ModelId.fromString("llama-3.3-70b"), "Llama 3.3 70B", "Meta", ["chat", "gherkin"]),
+  new AIModel(ModelId.fromString("deepseek-v3"), "DeepSeek V3", "DeepSeek", ["chat", "gherkin"]),
 ];
 
 export function listModels(): readonly AIModel[] {

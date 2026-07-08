@@ -12,27 +12,16 @@ function renderAt(path: string): string {
 }
 
 describe("AppRoutes", () => {
-  it("renderiza la página de inicio en la ruta raíz", () => {
+  it("renderiza el shell con el estado vacío del chat en la ruta raíz", () => {
     const html = renderAt("/");
 
     expect(html).toContain("QA Copilot");
-  });
-
-  it("renderiza la página de chat en /chat", () => {
-    const html = renderAt("/chat");
-
-    expect(html).toContain("<h1>Chat</h1>");
+    expect(html).toContain("Nueva conversación");
   });
 
   it("renderiza la página 404 en rutas desconocidas", () => {
     const html = renderAt("/ruta-inexistente");
 
     expect(html).toContain("404");
-  });
-
-  it("incluye la navegación principal con el enlace al chat", () => {
-    const html = renderAt("/");
-
-    expect(html).toContain('href="/chat"');
   });
 });

@@ -19,6 +19,15 @@ export class Message {
     );
   }
 
+  /**
+   * Reconstruye un mensaje ya existente (por ejemplo, al leerlo desde
+   * persistencia), preservando su identidad y fecha originales en lugar de
+   * generar unas nuevas como hace `create`.
+   */
+  static reconstitute(id: MessageId, role: string, content: string, createdAt: Date): Message {
+    return new Message(id, createMessageRole(role), MessageContent.create(content), createdAt);
+  }
+
   getId(): MessageId {
     return this.id;
   }

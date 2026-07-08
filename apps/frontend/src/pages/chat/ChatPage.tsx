@@ -1,106 +1,82 @@
-import { useEffect, useState } from "react";
-import type { AIModelDto, ConversationDto } from "@qa-copilot/shared";
-import { aiModelApi } from "../../lib/ai-model/aiModelApi";
-import { conversationApi } from "../../lib/conversation/conversationApi";
+import { useEffect } from "react";
+import { ChatInput } from "@/components/chat/ChatInput";
+import { ChatMessageList } from "@/components/chat/ChatMessageList";
+import { EmptyState } from "@/components/conversation/EmptyState";
+import { useConversationStore } from "@/stores/conversation.store";
+import { useStreamingStore } from "@/stores/streaming.store";
+import { useGherkinStore } from "@/stores/gherkin.store";
+
+const GHERKIN_CAPABILITY_ID = "gherkin";
 
 export function ChatPage() {
-  const [models, setModels] = useState<AIModelDto[]>([]);
-  const [selectedModelId, setSelectedModelId] = useState("");
-  const [conversation, setConversation] = useState<ConversationDto | null>(null);
-  const [input, setInput] = useState("");
-  const [isLoading, setIsLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const activeConversation = useConversationStore((state) => state.activeConversation);
+  const isSending = useConversationStore((state) => state.isSending);
+  const conversationError = useConversationStore((state) => state.error);
+  const loadInitialData = useConversationStore((state) => state.loadInitialData);
+  const startConversation = useConversationStore((state) => state.startConversation);
+
+  const isGenerating = useStreamingStore((state) => state.isGenerating);
+  const streamingText = useStreamingStore((state) => state.streamingText);
+  const streamingError = useStreamingStore((state) => state.error);
+  const cancel = useStreamingStore((state) => state.cancel);
+
+  const isGeneratingGherkin = useGherkinStore((state) => state.isGenerating);
+  const gherkinError = useGherkinStore((state) => state.error);
 
   useEffect(() => {
-    aiModelApi
-      .list()
-      .then((availableModels) => {
-        setModels(availableModels);
-        setSelectedModelId((current) => current || (availableModels[0]?.id ?? ""));
-      })
-      .catch((err: unknown) => setError((err as Error).message));
-  }, []);
+    void loadInitialData();
+  }, [loadInitialData]);
 
-  async function handleStartConversation() {
-    setError(null);
-    try {
-      const started = await conversationApi.start();
-      setConversation(started);
-    } catch (err) {
-      setError((err as Error).message);
-    }
-  }
-
-  async function handleSend() {
-    if (!conversation || !selectedModelId || input.trim().length === 0) {
+  async function handleSend(content: string) {
+    const updated = await useConversationStore.getState().sendMessage(content);
+    if (!updated) {
       return;
     }
 
-    setError(null);
-    setIsLoading(true);
-
-    try {
-      const afterUserMessage = await conversationApi.sendMessage(conversation.id, input);
-      setConversation(afterUserMessage);
-      setInput("");
-
-      const afterReply = await conversationApi.generateReply(conversation.id, selectedModelId);
-      setConversation(afterReply);
-    } catch (err) {
-      setError((err as Error).message);
-    } finally {
-      setIsLoading(false);
+    const { selectedModelId, selectedCapabilityId } = useConversationStore.getState();
+    if (!selectedModelId) {
+      return;
     }
+
+    if (selectedCapabilityId === GHERKIN_CAPABILITY_ID) {
+      await useGherkinStore.getState().generate(updated.id, selectedModelId);
+      return;
+    }
+
+    await useStreamingStore.getState().generateReply(updated.id, selectedModelId);
+  }
+
+  const error = conversationError ?? streamingError ?? gherkinError;
+
+  if (!activeConversation) {
+    return <EmptyState onStartConversation={() => void startConversation()} error={error} />;
   }
 
   return (
-    <section>
-      <h1>Chat</h1>
-
-      <div>
-        <label htmlFor="model-select">Modelo</label>
-        <select
-          id="model-select"
-          value={selectedModelId}
-          onChange={(event) => setSelectedModelId(event.target.value)}
-        >
-          {models.map((model) => (
-            <option key={model.id} value={model.id}>
-              {model.displayName} ({model.provider})
-            </option>
-          ))}
-        </select>
+    <div className="flex h-full flex-col">
+      <div className="min-h-0 flex-1">
+        <ChatMessageList
+          messages={activeConversation.messages}
+          streamingText={streamingText}
+          isGenerating={isGenerating}
+        />
       </div>
 
-      {!conversation && (
-        <button onClick={() => void handleStartConversation()}>Iniciar conversación</button>
+      {error && (
+        <p
+          role="alert"
+          className="mx-4 mb-2 rounded-md bg-destructive/10 px-3 py-2 text-sm text-destructive"
+        >
+          {error}
+        </p>
       )}
 
-      {conversation && (
-        <>
-          <ul>
-            {conversation.messages.map((message) => (
-              <li key={message.id}>
-                <strong>{message.role}:</strong> {message.content}
-              </li>
-            ))}
-          </ul>
-
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            disabled={isLoading}
-          />
-          <button
-            onClick={() => void handleSend()}
-            disabled={isLoading || input.trim().length === 0}
-          >
-            {isLoading ? "Enviando..." : "Enviar"}
-          </button>
-        </>
-      )}
-
-      {error && <p role="alert">{error}</p>}
-    </section>
+      <ChatInput
+        disabled={isSending || isGenerating || isGeneratingGherkin}
+        isGenerating={isGenerating}
+        onSend={(content) => void handleSend(content)}
+        onCancel={cancel}
+      />
+    </div>
   );
 }

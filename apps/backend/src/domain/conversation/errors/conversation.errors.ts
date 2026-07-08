@@ -16,6 +16,14 @@ export class ConversationNotFoundError extends DomainError {
   }
 }
 
+export class EmptyConversationTitleError extends DomainError {
+  readonly code = "CONVERSATION.EMPTY_TITLE";
+
+  constructor() {
+    super("El título de la conversación no puede estar vacío.");
+  }
+}
+
 export class EmptyMessageContentError extends DomainError {
   readonly code = "CONVERSATION.EMPTY_MESSAGE_CONTENT";
 

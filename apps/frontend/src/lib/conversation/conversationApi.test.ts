@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { httpClient } from "../http/httpClient";
+import { postSse } from "../http/sseClient";
 import { conversationApi } from "./conversationApi";
 
 vi.mock("../http/httpClient", () => ({
@@ -8,6 +9,16 @@ vi.mock("../http/httpClient", () => ({
     post: vi.fn(),
   },
 }));
+
+vi.mock("../http/sseClient", () => ({
+  postSse: vi.fn(),
+}));
+
+async function* toAsyncGenerator<T>(items: T[]): AsyncGenerator<T> {
+  for (const item of items) {
+    yield item;
+  }
+}
 
 describe("conversationApi", () => {
   it("inicia una conversación con un POST a /conversations", async () => {
@@ -28,6 +39,14 @@ describe("conversationApi", () => {
     });
   });
 
+  it("lista las conversaciones con un GET a /conversations", async () => {
+    vi.mocked(httpClient.get).mockResolvedValue([{ id: "1" }]);
+
+    await conversationApi.list();
+
+    expect(httpClient.get).toHaveBeenCalledWith("/conversations");
+  });
+
   it("obtiene una conversación con un GET a /conversations/:id", async () => {
     vi.mocked(httpClient.get).mockResolvedValue({ id: "1" });
 
@@ -44,5 +63,37 @@ describe("conversationApi", () => {
     expect(httpClient.post).toHaveBeenCalledWith("/conversations/conv-1/generate", {
       modelId: "gemini-2.5-flash",
     });
+  });
+
+  it("transmite y traduce eventos SSE de chunk, completed y error", async () => {
+    vi.mocked(postSse).mockResolvedValue(
+      toAsyncGenerator([
+        { event: "chunk", data: '{"delta":"Hola"}' },
+        {
+          event: "completed",
+          data: '{"id":"1","role":"assistant","content":"Hola","createdAt":"now"}',
+        },
+        { event: "error", data: '{"code":"AI_PROVIDER.TIMEOUT","message":"timeout"}' },
+      ]),
+    );
+
+    const events = [];
+    for await (const event of conversationApi.streamGenerateReply("conv-1", "gemini-2.5-flash")) {
+      events.push(event);
+    }
+
+    expect(postSse).toHaveBeenCalledWith(
+      "/conversations/conv-1/generate/stream",
+      { modelId: "gemini-2.5-flash" },
+      undefined,
+    );
+    expect(events).toEqual([
+      { type: "chunk", delta: "Hola" },
+      {
+        type: "completed",
+        message: { id: "1", role: "assistant", content: "Hola", createdAt: "now" },
+      },
+      { type: "error", code: "AI_PROVIDER.TIMEOUT", message: "timeout" },
+    ]);
   });
 });

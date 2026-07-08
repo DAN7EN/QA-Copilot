@@ -1,8 +1,12 @@
-import type { Conversation } from "../../domain/conversation/entities/conversation.entity.js";
 import { MessageContent } from "../../domain/conversation/value-objects/message-content.vo.js";
-import type { AIProviderPort } from "../../domain/conversation/ports/ai-provider.port.js";
+import type {
+  AIGenerationChunk,
+  AIProviderPort,
+} from "../../domain/conversation/ports/ai-provider.port.js";
 import type { ModelId } from "../../domain/ai-model/value-objects/model-id.vo.js";
+import type { PromptMessage } from "../../domain/prompt/value-objects/prompt-message.vo.js";
 import type { CloudflareAIGatewayConfig } from "../../shared/config/env.js";
+import { DomainError } from "../../domain/shared/errors/domain-error.js";
 import {
   AIProviderCancelledError,
   AIProviderConfigurationError,
@@ -33,7 +37,11 @@ type CompatChatCompletionResponse = {
   choices?: Array<{ message?: { content?: string } }>;
 };
 
-function toGatewayModel(modelId: ModelId): string {
+type CompatChatCompletionChunk = {
+  choices?: Array<{ delta?: { content?: string } }>;
+};
+
+function resolveGatewayModel(modelId: ModelId): string {
   const gatewayModel = GATEWAY_MODEL_BY_ID[modelId.toString()];
 
   if (!gatewayModel) {
@@ -43,19 +51,43 @@ function toGatewayModel(modelId: ModelId): string {
   return gatewayModel;
 }
 
-function toChatMessages(conversation: Conversation): Array<{ role: string; content: string }> {
-  return conversation.getMessages().map((message) => ({
-    role: message.getRole(),
-    content: message.getContent().toString(),
-  }));
-}
-
 function isConfigured(config: CloudflareAIGatewayConfig): boolean {
   return Boolean(config.accountId && config.gatewayId && config.apiToken);
 }
 
 function isNamedError(error: unknown, name: string): boolean {
   return error instanceof Error && error.name === name;
+}
+
+function buildUrl(config: CloudflareAIGatewayConfig): string {
+  return `https://gateway.ai.cloudflare.com/v1/${config.accountId}/${config.gatewayId}/compat/chat/completions`;
+}
+
+/**
+ * Serializa la petición al gateway. `messages` llega ya resuelto por el
+ * Prompt Management Framework (Sprint 5): este adaptador no construye
+ * prompts, solo transporta el resultado final.
+ */
+function buildRequestInit(
+  config: CloudflareAIGatewayConfig,
+  gatewayModel: string,
+  messages: readonly PromptMessage[],
+  signal: AbortSignal,
+  stream: boolean,
+): RequestInit {
+  return {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.apiToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: gatewayModel,
+      messages,
+      stream,
+    }),
+    signal,
+  };
 }
 
 /**
@@ -86,6 +118,114 @@ function createRequestAbortSignal(
   };
 }
 
+/** Normaliza cualquier error crudo (fetch, parsing) en un error de dominio consistente. */
+function classifyError(error: unknown): DomainError {
+  if (error instanceof DomainError) {
+    return error;
+  }
+
+  if (isNamedError(error, "TimeoutError")) {
+    return new AIProviderTimeoutError();
+  }
+
+  if (isNamedError(error, "AbortError")) {
+    return new AIProviderCancelledError();
+  }
+
+  return new AIProviderNetworkError();
+}
+
+type Outcome = "success" | "cancelled" | "error";
+
+/** Ciclo de vida observable de una llamada al proveedor: log estructurado + métricas. */
+function createCallLifecycle(logger: Logger, metrics: AIMetricsRecorder, model: string) {
+  const startedAt = Date.now();
+
+  return {
+    logStart(): void {
+      logger.info(
+        { event: "ai_provider_call", provider: PROVIDER_NAME, model, outcome: "start" },
+        "AI provider call started",
+      );
+    },
+    finish(outcome: Outcome, errorCode?: string): void {
+      const durationMs = Date.now() - startedAt;
+      const fields = {
+        event: "ai_provider_call",
+        provider: PROVIDER_NAME,
+        model,
+        durationMs,
+        outcome,
+      };
+
+      if (outcome === "success") {
+        logger.info(fields, "AI provider call succeeded");
+        metrics.recordSuccess({ provider: PROVIDER_NAME, model, durationMs });
+      } else if (outcome === "cancelled") {
+        logger.warn(fields, "AI provider call cancelled");
+        metrics.recordCancelled({ provider: PROVIDER_NAME, model, durationMs });
+      } else {
+        logger.error({ ...fields, errorCode }, "AI provider call failed");
+        metrics.recordFailure({ provider: PROVIDER_NAME, model, durationMs });
+      }
+    },
+    /** Clasifica el error, registra el desenlace correspondiente y lo devuelve para relanzarlo. */
+    fail(error: unknown): DomainError {
+      const domainError = classifyError(error);
+      const outcome: Outcome =
+        domainError instanceof AIProviderCancelledError ? "cancelled" : "error";
+      this.finish(outcome, domainError.code);
+      return domainError;
+    },
+  };
+}
+
+/** Lee el cuerpo `text/event-stream` del endpoint compat y entrega los deltas de contenido. */
+async function* readContentDeltas(body: ReadableStream<Uint8Array>): AsyncGenerator<string> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        return;
+      }
+
+      buffer += decoder.decode(value, { stream: true });
+      const frames = buffer.split("\n\n");
+      buffer = frames.pop() ?? "";
+
+      for (const frame of frames) {
+        const dataLine = frame.split("\n").find((line) => line.startsWith("data:"));
+        if (!dataLine) {
+          continue;
+        }
+
+        const data = dataLine.slice("data:".length).trim();
+        if (data === "[DONE]") {
+          return;
+        }
+
+        let parsed: CompatChatCompletionChunk;
+        try {
+          parsed = JSON.parse(data) as CompatChatCompletionChunk;
+        } catch {
+          throw new AIProviderInvalidResponseError();
+        }
+
+        const delta = parsed.choices?.[0]?.delta?.content;
+        if (delta) {
+          yield delta;
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+}
+
 export function createCloudflareAIGatewayProvider(
   config: CloudflareAIGatewayConfig,
   logger: Logger,
@@ -93,108 +233,99 @@ export function createCloudflareAIGatewayProvider(
 ): AIProviderPort {
   return {
     async generateReply(
-      conversation: Conversation,
+      messages: readonly PromptMessage[],
       modelId: ModelId,
       externalSignal?: AbortSignal,
     ): Promise<MessageContent> {
       const model = modelId.toString();
-      const startedAt = Date.now();
+      const lifecycle = createCallLifecycle(logger, metrics, model);
+      lifecycle.logStart();
 
-      function logAndRecord(outcome: "success" | "error", errorCode?: string): void {
-        const durationMs = Date.now() - startedAt;
-        const fields = {
-          event: "ai_provider_call",
-          provider: PROVIDER_NAME,
-          model,
-          durationMs,
-          outcome,
-        };
-
-        if (outcome === "success") {
-          logger.info(fields, "AI provider call succeeded");
-          metrics.recordSuccess({ provider: PROVIDER_NAME, model, durationMs });
-        } else {
-          logger.error({ ...fields, errorCode }, "AI provider call failed");
-          metrics.recordFailure({ provider: PROVIDER_NAME, model, durationMs });
-        }
-      }
-
-      if (!isConfigured(config)) {
-        const error = new AIProviderConfigurationError();
-        logAndRecord("error", error.code);
-        throw error;
-      }
-
-      let gatewayModel: string;
       try {
-        gatewayModel = toGatewayModel(modelId);
+        if (!isConfigured(config)) {
+          throw new AIProviderConfigurationError();
+        }
+        const gatewayModel = resolveGatewayModel(modelId);
+
+        const { signal, cleanup } = createRequestAbortSignal(config.timeoutMs, externalSignal);
+        try {
+          const response = await fetch(
+            buildUrl(config),
+            buildRequestInit(config, gatewayModel, messages, signal, false),
+          );
+
+          if (!response.ok) {
+            throw new AIProviderUpstreamError(response.status);
+          }
+
+          let content: string | undefined;
+          try {
+            const payload = (await response.json()) as CompatChatCompletionResponse;
+            content = payload.choices?.[0]?.message?.content;
+          } catch {
+            content = undefined;
+          }
+
+          if (!content) {
+            throw new AIProviderInvalidResponseError();
+          }
+
+          lifecycle.finish("success");
+          return MessageContent.create(content);
+        } finally {
+          cleanup();
+        }
       } catch (error) {
-        if (error instanceof AIProviderConfigurationError) {
-          logAndRecord("error", error.code);
-        }
-        throw error;
+        throw lifecycle.fail(error);
       }
+    },
 
-      const url = `https://gateway.ai.cloudflare.com/v1/${config.accountId}/${config.gatewayId}/compat/chat/completions`;
-      const { signal, cleanup } = createRequestAbortSignal(config.timeoutMs, externalSignal);
+    async *streamReply(
+      messages: readonly PromptMessage[],
+      modelId: ModelId,
+      externalSignal?: AbortSignal,
+    ): AsyncIterable<AIGenerationChunk> {
+      const model = modelId.toString();
+      const lifecycle = createCallLifecycle(logger, metrics, model);
+      lifecycle.logStart();
 
-      let response: Response;
       try {
-        response = await fetch(url, {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${config.apiToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: gatewayModel,
-            messages: toChatMessages(conversation),
-          }),
-          signal,
-        });
+        if (!isConfigured(config)) {
+          throw new AIProviderConfigurationError();
+        }
+        const gatewayModel = resolveGatewayModel(modelId);
+
+        const { signal, cleanup } = createRequestAbortSignal(config.timeoutMs, externalSignal);
+        try {
+          const response = await fetch(
+            buildUrl(config),
+            buildRequestInit(config, gatewayModel, messages, signal, true),
+          );
+
+          if (!response.ok) {
+            throw new AIProviderUpstreamError(response.status);
+          }
+          if (!response.body) {
+            throw new AIProviderInvalidResponseError();
+          }
+
+          let sawContent = false;
+          for await (const delta of readContentDeltas(response.body)) {
+            sawContent = true;
+            yield { type: "content", delta };
+          }
+
+          if (!sawContent) {
+            throw new AIProviderInvalidResponseError();
+          }
+
+          lifecycle.finish("success");
+        } finally {
+          cleanup();
+        }
       } catch (error) {
-        if (isNamedError(error, "TimeoutError")) {
-          const timeoutError = new AIProviderTimeoutError();
-          logAndRecord("error", timeoutError.code);
-          throw timeoutError;
-        }
-
-        if (isNamedError(error, "AbortError")) {
-          const cancelledError = new AIProviderCancelledError();
-          logAndRecord("error", cancelledError.code);
-          throw cancelledError;
-        }
-
-        const networkError = new AIProviderNetworkError();
-        logAndRecord("error", networkError.code);
-        throw networkError;
-      } finally {
-        cleanup();
+        throw lifecycle.fail(error);
       }
-
-      if (!response.ok) {
-        const upstreamError = new AIProviderUpstreamError(response.status);
-        logAndRecord("error", upstreamError.code);
-        throw upstreamError;
-      }
-
-      let payload: CompatChatCompletionResponse;
-      let content: string | undefined;
-      try {
-        payload = (await response.json()) as CompatChatCompletionResponse;
-        content = payload.choices?.[0]?.message?.content;
-      } catch {
-        content = undefined;
-      }
-
-      if (!content) {
-        const invalidResponseError = new AIProviderInvalidResponseError();
-        logAndRecord("error", invalidResponseError.code);
-        throw invalidResponseError;
-      }
-
-      logAndRecord("success");
-      return MessageContent.create(content);
     },
   };
 }

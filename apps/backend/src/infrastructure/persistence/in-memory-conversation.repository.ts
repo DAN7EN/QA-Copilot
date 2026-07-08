@@ -12,4 +12,14 @@ export class InMemoryConversationRepository implements ConversationRepositoryPor
   async findById(id: ConversationId): Promise<Conversation | null> {
     return this.conversations.get(id.toString()) ?? null;
   }
+
+  async findAll(): Promise<Conversation[]> {
+    return [...this.conversations.values()].sort(
+      (a, b) => b.getUpdatedAt().getTime() - a.getUpdatedAt().getTime(),
+    );
+  }
+
+  async delete(id: ConversationId): Promise<void> {
+    this.conversations.delete(id.toString());
+  }
 }

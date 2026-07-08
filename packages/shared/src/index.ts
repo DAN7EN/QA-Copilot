@@ -23,11 +23,16 @@ export type ConversationDto = {
   id: string;
   createdAt: string;
   updatedAt: string;
+  title: string | null;
   messages: MessageDto[];
 };
 
 export type SendMessageRequest = {
   content: string;
+};
+
+export type RenameConversationRequest = {
+  title: string;
 };
 
 export type AIModelDto = {
@@ -38,5 +43,28 @@ export type AIModelDto = {
 };
 
 export type GenerateAssistantReplyRequest = {
+  modelId: string;
+};
+
+export type CapabilityDto = {
+  id: string;
+  name: string;
+  description: string;
+};
+
+export type GherkinScenarioDto = {
+  title: string;
+  steps: string[];
+};
+
+export type GherkinResultDto = {
+  title: string;
+  feature: string;
+  background?: string[];
+  scenarios: GherkinScenarioDto[];
+  rawMarkdown: string;
+};
+
+export type GenerateGherkinRequest = {
   modelId: string;
 };

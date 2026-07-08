@@ -5,11 +5,18 @@ import { Conversation } from "../../domain/conversation/entities/conversation.en
 import { ConversationNotFoundError } from "../../domain/conversation/errors/conversation.errors.js";
 import { ModelNotFoundError } from "../../domain/ai-model/errors/ai-model.errors.js";
 import { MessageContent } from "../../domain/conversation/value-objects/message-content.vo.js";
-import type { AIProviderPort } from "../../domain/conversation/ports/ai-provider.port.js";
+import type {
+  AIGenerationChunk,
+  AIProviderPort,
+} from "../../domain/conversation/ports/ai-provider.port.js";
+import { createPromptManager } from "../../domain/prompt/prompt-manager.js";
 
 function createFakeAIProvider(replyText = "hola, ¿en qué puedo ayudarte?"): AIProviderPort {
   return {
     generateReply: async () => MessageContent.create(replyText),
+    async *streamReply(): AsyncIterable<AIGenerationChunk> {
+      yield { type: "content", delta: replyText };
+    },
   };
 }
 
@@ -19,7 +26,11 @@ describe("GenerateAssistantReplyUseCase", () => {
     const conversation = Conversation.start();
     conversation.addMessage("user", "hola");
     await repository.save(conversation);
-    const useCase = createGenerateAssistantReplyUseCase(repository, createFakeAIProvider());
+    const useCase = createGenerateAssistantReplyUseCase(
+      repository,
+      createFakeAIProvider(),
+      createPromptManager(),
+    );
 
     const updated = await useCase.execute({
       conversationId: conversation.getId().toString(),
@@ -33,7 +44,11 @@ describe("GenerateAssistantReplyUseCase", () => {
 
   it("lanza ConversationNotFoundError si la conversación no existe", async () => {
     const repository = new InMemoryConversationRepository();
-    const useCase = createGenerateAssistantReplyUseCase(repository, createFakeAIProvider());
+    const useCase = createGenerateAssistantReplyUseCase(
+      repository,
+      createFakeAIProvider(),
+      createPromptManager(),
+    );
 
     await expect(
       useCase.execute({ conversationId: "no-existe", modelId: "gemini-2.5-flash" }),
@@ -44,7 +59,11 @@ describe("GenerateAssistantReplyUseCase", () => {
     const repository = new InMemoryConversationRepository();
     const conversation = Conversation.start();
     await repository.save(conversation);
-    const useCase = createGenerateAssistantReplyUseCase(repository, createFakeAIProvider());
+    const useCase = createGenerateAssistantReplyUseCase(
+      repository,
+      createFakeAIProvider(),
+      createPromptManager(),
+    );
 
     await expect(
       useCase.execute({ conversationId: conversation.getId().toString(), modelId: "no-existe" }),
@@ -56,7 +75,16 @@ describe("GenerateAssistantReplyUseCase", () => {
     const conversation = Conversation.start();
     await repository.save(conversation);
     const generateReply = vi.fn().mockResolvedValue(MessageContent.create("ok"));
-    const useCase = createGenerateAssistantReplyUseCase(repository, { generateReply });
+    const useCase = createGenerateAssistantReplyUseCase(
+      repository,
+      {
+        generateReply,
+        streamReply: () => {
+          throw new Error("not used in this test");
+        },
+      },
+      createPromptManager(),
+    );
     const controller = new AbortController();
 
     await useCase.execute({
@@ -66,7 +94,7 @@ describe("GenerateAssistantReplyUseCase", () => {
     });
 
     expect(generateReply).toHaveBeenCalledWith(
-      expect.anything(),
+      expect.arrayContaining([expect.objectContaining({ role: "system" })]),
       expect.anything(),
       controller.signal,
     );

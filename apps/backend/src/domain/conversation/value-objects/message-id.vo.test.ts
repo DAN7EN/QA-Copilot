@@ -14,4 +14,10 @@ describe("MessageId", () => {
 
     expect(id.equals(id)).toBe(true);
   });
+
+  it("reconstruye un id a partir de un string y preserva su valor", () => {
+    const id = MessageId.fromString("11111111-1111-1111-1111-111111111111");
+
+    expect(id.toString()).toBe("11111111-1111-1111-1111-111111111111");
+  });
 });

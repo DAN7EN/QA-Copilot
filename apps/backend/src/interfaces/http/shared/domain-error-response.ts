@@ -14,6 +14,9 @@ const STATUS_CODE_BY_ERROR_CODE: Record<string, number> = {
   "AI_PROVIDER.UPSTREAM_ERROR": 502,
   "AI_PROVIDER.INVALID_RESPONSE": 502,
   "AI_PROVIDER.CANCELLED": 499,
+  "PROMPT.NOT_FOUND": 500,
+  "PROMPT.MISSING_VARIABLES": 500,
+  "CAPABILITY.NOT_FOUND": 404,
 };
 
 export function toDomainErrorResponse(error: DomainError): DomainErrorResponse {
