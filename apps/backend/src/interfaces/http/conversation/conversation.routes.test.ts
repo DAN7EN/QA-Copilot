@@ -1,6 +1,7 @@
-import Fastify from "fastify";
+import Fastify, { type FastifyInstance } from "fastify";
 import { describe, expect, it } from "vitest";
 import { registerConversationRoutes } from "./conversation.routes.js";
+import { buildServer } from "../../../infrastructure/http/server.js";
 import { InMemoryConversationRepository } from "../../../infrastructure/persistence/in-memory-conversation.repository.js";
 import { createStartConversationUseCase } from "../../../application/conversation/start-conversation.use-case.js";
 import { createSendMessageUseCase } from "../../../application/conversation/send-message.use-case.js";
@@ -46,25 +47,38 @@ function createFailingAIProvider(error: Error): AIProviderPort {
   };
 }
 
-function buildApp(aiProvider: AIProviderPort = createFakeAIProvider()) {
-  const app = Fastify();
+const TEST_CORS_ORIGIN = "http://localhost:5173";
+
+function buildApp(
+  aiProvider: AIProviderPort = createFakeAIProvider(),
+  app: FastifyInstance = Fastify(),
+  corsOrigin: string = TEST_CORS_ORIGIN,
+) {
   const repository = new InMemoryConversationRepository();
   const promptManager = createPromptManager();
 
-  registerConversationRoutes(app, {
-    startConversation: createStartConversationUseCase(repository),
-    sendMessage: createSendMessageUseCase(repository),
-    getConversation: createGetConversationUseCase(repository),
-    listConversations: createListConversationsUseCase(repository),
-    generateAssistantReply: createGenerateAssistantReplyUseCase(
-      repository,
-      aiProvider,
-      promptManager,
-    ),
-    streamAssistantReply: createStreamAssistantReplyUseCase(repository, aiProvider, promptManager),
-    renameConversation: createRenameConversationUseCase(repository),
-    deleteConversation: createDeleteConversationUseCase(repository),
-  });
+  registerConversationRoutes(
+    app,
+    {
+      startConversation: createStartConversationUseCase(repository),
+      sendMessage: createSendMessageUseCase(repository),
+      getConversation: createGetConversationUseCase(repository),
+      listConversations: createListConversationsUseCase(repository),
+      generateAssistantReply: createGenerateAssistantReplyUseCase(
+        repository,
+        aiProvider,
+        promptManager,
+      ),
+      streamAssistantReply: createStreamAssistantReplyUseCase(
+        repository,
+        aiProvider,
+        promptManager,
+      ),
+      renameConversation: createRenameConversationUseCase(repository),
+      deleteConversation: createDeleteConversationUseCase(repository),
+    },
+    corsOrigin,
+  );
 
   return app;
 }
@@ -224,6 +238,54 @@ describe("Conversation routes", () => {
     expect(response.payload).toContain("event: completed");
     expect(response.payload).toContain('"role":"assistant"');
     expect(response.payload).toContain('"content":"respuesta simulada"');
+  });
+
+  it("POST /api/v1/conversations/:id/generate/stream incluye Access-Control-Allow-Origin aunque @fastify/cors no esté registrado", async () => {
+    // reply.hijack() saca la respuesta SSE del ciclo de vida normal de
+    // Fastify, así que cualquier header que dependiera del hook onRequest de
+    // @fastify/cors nunca llegaría a escribirse. Esta app deliberadamente NO
+    // registra @fastify/cors: si el header aparece de todos modos, es porque
+    // startSseStream lo escribe explícitamente a partir de `corsOrigin`, no
+    // porque lo haya heredado de algún estado dejado por el plugin.
+    const app = buildApp(createFakeAIProvider(), Fastify(), "https://example.com");
+    const started = await app.inject({ method: "POST", url: "/api/v1/conversations" });
+    const { id } = started.json();
+
+    const response = await app.inject({
+      method: "POST",
+      url: `/api/v1/conversations/${id}/generate/stream`,
+      headers: { origin: "https://example.com" },
+      payload: { modelId: "gemini-2.5-flash" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/event-stream");
+    expect(response.headers["access-control-allow-origin"]).toBe("https://example.com");
+  });
+
+  it("POST /api/v1/conversations/:id/generate/stream devuelve el mismo Access-Control-Allow-Origin que el resto de la API", async () => {
+    const corsOrigin = "https://example.com";
+    const app = buildApp(createFakeAIProvider(), buildServer(corsOrigin), corsOrigin);
+    const started = await app.inject({ method: "POST", url: "/api/v1/conversations" });
+    const { id } = started.json();
+
+    const restResponse = await app.inject({
+      method: "GET",
+      url: "/api/v1/conversations",
+      headers: { origin: corsOrigin },
+    });
+    const streamResponse = await app.inject({
+      method: "POST",
+      url: `/api/v1/conversations/${id}/generate/stream`,
+      headers: { origin: corsOrigin },
+      payload: { modelId: "gemini-2.5-flash" },
+    });
+
+    expect(streamResponse.statusCode).toBe(200);
+    expect(streamResponse.headers["access-control-allow-origin"]).toBe(
+      restResponse.headers["access-control-allow-origin"],
+    );
+    expect(streamResponse.headers["access-control-allow-origin"]).toBe(corsOrigin);
   });
 
   it("POST /api/v1/conversations/:id/generate/stream responde 400 si falta el modelId", async () => {

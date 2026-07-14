@@ -45,24 +45,28 @@ const aiProvider = createCloudflareAIGatewayProvider(
 );
 const promptManager = createPromptManager();
 
-registerConversationRoutes(app, {
-  startConversation: createStartConversationUseCase(conversationRepository),
-  sendMessage: createSendMessageUseCase(conversationRepository),
-  getConversation: createGetConversationUseCase(conversationRepository),
-  listConversations: createListConversationsUseCase(conversationRepository),
-  generateAssistantReply: createGenerateAssistantReplyUseCase(
-    conversationRepository,
-    aiProvider,
-    promptManager,
-  ),
-  streamAssistantReply: createStreamAssistantReplyUseCase(
-    conversationRepository,
-    aiProvider,
-    promptManager,
-  ),
-  renameConversation: createRenameConversationUseCase(conversationRepository),
-  deleteConversation: createDeleteConversationUseCase(conversationRepository),
-});
+registerConversationRoutes(
+  app,
+  {
+    startConversation: createStartConversationUseCase(conversationRepository),
+    sendMessage: createSendMessageUseCase(conversationRepository),
+    getConversation: createGetConversationUseCase(conversationRepository),
+    listConversations: createListConversationsUseCase(conversationRepository),
+    generateAssistantReply: createGenerateAssistantReplyUseCase(
+      conversationRepository,
+      aiProvider,
+      promptManager,
+    ),
+    streamAssistantReply: createStreamAssistantReplyUseCase(
+      conversationRepository,
+      aiProvider,
+      promptManager,
+    ),
+    renameConversation: createRenameConversationUseCase(conversationRepository),
+    deleteConversation: createDeleteConversationUseCase(conversationRepository),
+  },
+  corsOrigin,
+);
 
 registerAIModelRoutes(app, {
   listModels: createListModelsUseCase(),

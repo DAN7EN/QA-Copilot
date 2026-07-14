@@ -56,6 +56,7 @@ function extractTitle(body: unknown): string | null {
 export function registerConversationRoutes(
   app: FastifyInstance,
   deps: ConversationRouteDependencies,
+  corsOrigin: string,
 ): void {
   app.post("/api/v1/conversations", async (_request, reply) => {
     const conversation = await deps.startConversation.execute();
@@ -176,7 +177,7 @@ export function registerConversationRoutes(
       };
     }
 
-    startSseStream(reply);
+    startSseStream(reply, corsOrigin);
 
     const abortController = new AbortController();
     const removeDisconnectListener = onClientDisconnect(reply, () => abortController.abort());
