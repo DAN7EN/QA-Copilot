@@ -7,14 +7,26 @@ function buildConversation(overrides: Partial<ConversationDto> = {}): Conversati
     id: "conv-1",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    title: null,
     messages: [],
     ...overrides,
   };
 }
 
 describe("deriveConversationTitle", () => {
-  it("usa un título por defecto cuando no hay mensajes de usuario", () => {
+  it("usa un título por defecto cuando no hay mensajes de usuario ni título", () => {
     expect(deriveConversationTitle(buildConversation())).toBe("Nueva conversación");
+  });
+
+  it("prioriza el título renombrado por el usuario sobre el derivado", () => {
+    const conversation = buildConversation({
+      title: "Mi conversación",
+      messages: [
+        { id: "m1", role: "user", content: "hola", createdAt: "2026-01-01T00:00:00.000Z" },
+      ],
+    });
+
+    expect(deriveConversationTitle(conversation)).toBe("Mi conversación");
   });
 
   it("deriva el título del primer mensaje de usuario", () => {

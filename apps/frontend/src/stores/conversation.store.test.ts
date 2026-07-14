@@ -19,6 +19,8 @@ vi.mock("../lib/conversation/conversationApi", () => ({
     sendMessage: vi.fn(),
     generateReply: vi.fn(),
     streamGenerateReply: vi.fn(),
+    rename: vi.fn(),
+    remove: vi.fn(),
   },
 }));
 
@@ -27,6 +29,7 @@ function buildConversation(overrides: Partial<ConversationDto> = {}): Conversati
     id: "conv-1",
     createdAt: "2026-01-01T00:00:00.000Z",
     updatedAt: "2026-01-01T00:00:00.000Z",
+    title: null,
     messages: [],
     ...overrides,
   };
@@ -86,5 +89,58 @@ describe("useConversationStore", () => {
 
     expect(result).toBeNull();
     expect(conversationApi.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("renameConversation actualiza la conversación activa y la lista", async () => {
+    const original = buildConversation({ id: "conv-1", title: null });
+    const renamed = buildConversation({ id: "conv-1", title: "Nuevo título" });
+    useConversationStore.setState({ activeConversation: original, conversations: [original] });
+    vi.mocked(conversationApi.rename).mockResolvedValue(renamed);
+
+    await useConversationStore.getState().renameConversation("conv-1", "Nuevo título");
+
+    expect(conversationApi.rename).toHaveBeenCalledWith("conv-1", "Nuevo título");
+    expect(useConversationStore.getState().activeConversation?.title).toBe("Nuevo título");
+    expect(useConversationStore.getState().conversations[0]?.title).toBe("Nuevo título");
+  });
+
+  it("renameConversation guarda el error si la API falla", async () => {
+    vi.mocked(conversationApi.rename).mockRejectedValue(new Error("falló"));
+
+    await useConversationStore.getState().renameConversation("conv-1", "Nuevo título");
+
+    expect(useConversationStore.getState().error).toBe("falló");
+  });
+
+  it("deleteConversation quita la conversación de la lista y limpia la activa si coincide", async () => {
+    const conversation = buildConversation({ id: "conv-1" });
+    useConversationStore.setState({
+      activeConversation: conversation,
+      conversations: [conversation],
+    });
+    vi.mocked(conversationApi.remove).mockResolvedValue(undefined);
+
+    await useConversationStore.getState().deleteConversation("conv-1");
+
+    expect(conversationApi.remove).toHaveBeenCalledWith("conv-1");
+    expect(useConversationStore.getState().conversations).toHaveLength(0);
+    expect(useConversationStore.getState().activeConversation).toBeNull();
+  });
+
+  it("deleteConversation no toca la conversación activa si elimina otra distinta", async () => {
+    const active = buildConversation({ id: "conv-1" });
+    const other = buildConversation({ id: "conv-2" });
+    useConversationStore.setState({
+      activeConversation: active,
+      conversations: [active, other],
+    });
+    vi.mocked(conversationApi.remove).mockResolvedValue(undefined);
+
+    await useConversationStore.getState().deleteConversation("conv-2");
+
+    expect(useConversationStore.getState().activeConversation?.id).toBe("conv-1");
+    expect(useConversationStore.getState().conversations.map((item) => item.id)).toEqual([
+      "conv-1",
+    ]);
   });
 });

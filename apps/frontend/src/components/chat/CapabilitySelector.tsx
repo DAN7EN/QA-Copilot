@@ -5,6 +5,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { getCapabilityDescriptor } from "@/lib/capability/capability-registry";
 import { useConversationStore } from "@/stores/conversation.store";
 
 export function CapabilitySelector() {
@@ -22,11 +23,17 @@ export function CapabilitySelector() {
         <SelectValue placeholder="Capacidad" />
       </SelectTrigger>
       <SelectContent>
-        {capabilities.map((capability) => (
-          <SelectItem key={capability.id} value={capability.id}>
-            {capability.name}
-          </SelectItem>
-        ))}
+        {capabilities.map((capability) => {
+          const Icon = getCapabilityDescriptor(capability.id)?.icon;
+          return (
+            <SelectItem key={capability.id} value={capability.id}>
+              <span className="flex items-center gap-2">
+                {Icon && <Icon className="size-4" />}
+                {capability.name}
+              </span>
+            </SelectItem>
+          );
+        })}
       </SelectContent>
     </Select>
   );

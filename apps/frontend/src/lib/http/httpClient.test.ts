@@ -66,4 +66,36 @@ describe("httpClient", () => {
       }),
     );
   });
+
+  it("realiza un PATCH con body serializado en JSON", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ id: "conv-1", title: "Nuevo título" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await httpClient.patch("/conversations/conv-1", { title: "Nuevo título" });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/conversations/conv-1"),
+      expect.objectContaining({
+        method: "PATCH",
+        body: JSON.stringify({ title: "Nuevo título" }),
+      }),
+    );
+    expect(result).toEqual({ id: "conv-1", title: "Nuevo título" });
+  });
+
+  it("realiza un DELETE y no intenta parsear un body en respuestas 204", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 204 });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await httpClient.delete("/conversations/conv-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/conversations/conv-1"),
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(result).toBeUndefined();
+  });
 });

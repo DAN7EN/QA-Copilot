@@ -2,6 +2,7 @@ import type {
   ConversationDto,
   GenerateAssistantReplyRequest,
   MessageDto,
+  RenameConversationRequest,
   SendMessageRequest,
 } from "@qa-copilot/shared";
 import { httpClient } from "../http/httpClient";
@@ -47,5 +48,11 @@ export const conversationApi = {
     } satisfies GenerateAssistantReplyRequest),
   get: (conversationId: string): Promise<ConversationDto> =>
     httpClient.get<ConversationDto>(`/conversations/${conversationId}`),
+  rename: (conversationId: string, title: string): Promise<ConversationDto> =>
+    httpClient.patch<ConversationDto>(`/conversations/${conversationId}`, {
+      title,
+    } satisfies RenameConversationRequest),
+  remove: (conversationId: string): Promise<void> =>
+    httpClient.delete(`/conversations/${conversationId}`),
   streamGenerateReply,
 };

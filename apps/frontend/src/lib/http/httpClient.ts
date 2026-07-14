@@ -10,6 +10,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`HTTP ${response.status}: ${response.statusText}`);
   }
 
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
   return response.json() as Promise<T>;
 }
 
@@ -21,4 +25,7 @@ export const httpClient = {
       headers: body !== undefined ? { "Content-Type": "application/json" } : {},
       body: body !== undefined ? JSON.stringify(body) : undefined,
     }),
+  patch: <T>(path: string, body: unknown): Promise<T> =>
+    request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
+  delete: <T = void>(path: string): Promise<T> => request<T>(path, { method: "DELETE" }),
 };

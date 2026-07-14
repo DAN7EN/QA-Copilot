@@ -7,6 +7,8 @@ vi.mock("../http/httpClient", () => ({
   httpClient: {
     get: vi.fn(),
     post: vi.fn(),
+    patch: vi.fn(),
+    delete: vi.fn(),
   },
 }));
 
@@ -63,6 +65,24 @@ describe("conversationApi", () => {
     expect(httpClient.post).toHaveBeenCalledWith("/conversations/conv-1/generate", {
       modelId: "gemini-2.5-flash",
     });
+  });
+
+  it("renombra una conversación con un PATCH a /conversations/:id", async () => {
+    vi.mocked(httpClient.patch).mockResolvedValue({ id: "1", title: "Nuevo título" });
+
+    await conversationApi.rename("conv-1", "Nuevo título");
+
+    expect(httpClient.patch).toHaveBeenCalledWith("/conversations/conv-1", {
+      title: "Nuevo título",
+    });
+  });
+
+  it("elimina una conversación con un DELETE a /conversations/:id", async () => {
+    vi.mocked(httpClient.delete).mockResolvedValue(undefined);
+
+    await conversationApi.remove("conv-1");
+
+    expect(httpClient.delete).toHaveBeenCalledWith("/conversations/conv-1");
   });
 
   it("transmite y traduce eventos SSE de chunk, completed y error", async () => {

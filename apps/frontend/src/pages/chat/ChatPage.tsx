@@ -2,11 +2,12 @@ import { useEffect } from "react";
 import { ChatInput } from "@/components/chat/ChatInput";
 import { ChatMessageList } from "@/components/chat/ChatMessageList";
 import { EmptyState } from "@/components/conversation/EmptyState";
+import {
+  getCapabilityDescriptor,
+  useActiveGenerationState,
+} from "@/lib/capability/capability-registry";
 import { useConversationStore } from "@/stores/conversation.store";
 import { useStreamingStore } from "@/stores/streaming.store";
-import { useGherkinStore } from "@/stores/gherkin.store";
-
-const GHERKIN_CAPABILITY_ID = "gherkin";
 
 export function ChatPage() {
   const activeConversation = useConversationStore((state) => state.activeConversation);
@@ -15,13 +16,14 @@ export function ChatPage() {
   const loadInitialData = useConversationStore((state) => state.loadInitialData);
   const startConversation = useConversationStore((state) => state.startConversation);
 
-  const isGenerating = useStreamingStore((state) => state.isGenerating);
+  const isStreamingReply = useStreamingStore((state) => state.isGenerating);
   const streamingText = useStreamingStore((state) => state.streamingText);
-  const streamingError = useStreamingStore((state) => state.error);
   const cancel = useStreamingStore((state) => state.cancel);
 
-  const isGeneratingGherkin = useGherkinStore((state) => state.isGenerating);
-  const gherkinError = useGherkinStore((state) => state.error);
+  // Agregado de todas las capacidades: deshabilita el input mientras cualquiera
+  // esté generando. La burbuja de "escribiendo..." del chat, en cambio, es
+  // específica del streaming de texto y usa isStreamingReply directamente.
+  const { isGenerating, error: capabilityError } = useActiveGenerationState();
 
   useEffect(() => {
     void loadInitialData();
@@ -38,15 +40,11 @@ export function ChatPage() {
       return;
     }
 
-    if (selectedCapabilityId === GHERKIN_CAPABILITY_ID) {
-      await useGherkinStore.getState().generate(updated.id, selectedModelId);
-      return;
-    }
-
-    await useStreamingStore.getState().generateReply(updated.id, selectedModelId);
+    const descriptor = getCapabilityDescriptor(selectedCapabilityId);
+    await descriptor?.runGeneration(updated.id, selectedModelId);
   }
 
-  const error = conversationError ?? streamingError ?? gherkinError;
+  const error = conversationError ?? capabilityError;
 
   if (!activeConversation) {
     return <EmptyState onStartConversation={() => void startConversation()} error={error} />;
@@ -58,7 +56,7 @@ export function ChatPage() {
         <ChatMessageList
           messages={activeConversation.messages}
           streamingText={streamingText}
-          isGenerating={isGenerating}
+          isGenerating={isStreamingReply}
         />
       </div>
 
@@ -72,8 +70,8 @@ export function ChatPage() {
       )}
 
       <ChatInput
-        disabled={isSending || isGenerating || isGeneratingGherkin}
-        isGenerating={isGenerating}
+        disabled={isSending || isGenerating}
+        isGenerating={isStreamingReply}
         onSend={(content) => void handleSend(content)}
         onCancel={cancel}
       />

@@ -21,6 +21,8 @@ type ConversationState = {
   setSelectedCapabilityId: (capabilityId: string) => void;
   sendMessage: (content: string) => Promise<ConversationDto | null>;
   appendAssistantMessage: (message: MessageDto) => void;
+  renameConversation: (conversationId: string, title: string) => Promise<void>;
+  deleteConversation: (conversationId: string) => Promise<void>;
   setError: (message: string | null) => void;
 };
 
@@ -136,6 +138,36 @@ export const useConversationStore = create<ConversationState>((set, get) => ({
         ),
       };
     });
+  },
+
+  async renameConversation(conversationId, title) {
+    set({ error: null });
+    try {
+      const updated = await conversationApi.rename(conversationId, title);
+      set((state) => ({
+        activeConversation:
+          state.activeConversation?.id === updated.id ? updated : state.activeConversation,
+        conversations: sortByUpdatedAtDesc(
+          state.conversations.map((item) => (item.id === updated.id ? updated : item)),
+        ),
+      }));
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
+  },
+
+  async deleteConversation(conversationId) {
+    set({ error: null });
+    try {
+      await conversationApi.remove(conversationId);
+      set((state) => ({
+        conversations: state.conversations.filter((item) => item.id !== conversationId),
+        activeConversation:
+          state.activeConversation?.id === conversationId ? null : state.activeConversation,
+      }));
+    } catch (err) {
+      set({ error: (err as Error).message });
+    }
   },
 
   setError(message) {

@@ -4,6 +4,10 @@ const FALLBACK_TITLE = "Nueva conversación";
 const MAX_TITLE_LENGTH = 48;
 
 export function deriveConversationTitle(conversation: ConversationDto): string {
+  if (conversation.title) {
+    return conversation.title;
+  }
+
   const firstUserMessage = conversation.messages.find((message) => message.role === "user");
 
   if (!firstUserMessage) {
